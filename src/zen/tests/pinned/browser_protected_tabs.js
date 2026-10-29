@@ -624,8 +624,11 @@ add_task(async function test_locked_drag_starts_are_canceled() {
     "about:blank"
   );
   const tabs = document.getElementById("tabbrowser-tabs");
-  // A synthetic trusted dragstart: dataTransfer must be real because the tab
-  // element marks it non-failing before the manager gets the event.
+  // This is a programmatically constructed (untrusted) event. It exercises
+  // the real DOM listener chain (tab element handler, tab strip handler, the
+  // manager guard and the early startingTabDrag return) and its
+  // defaultPrevented result, but it cannot prove that a real OS drag session
+  // stays absent; a manual drag gesture check covers that separately.
   const startDrag = tab => {
     const event = new DragEvent("dragstart", {
       bubbles: true,
