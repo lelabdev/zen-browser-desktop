@@ -169,9 +169,11 @@ zen-appmenu-new-blank-window =
 
 
 # Native, opt-in global protection for Pinned and Essential tabs.
-tab-context-zen-protect-pinned-essentials =
-    .label = Protect Pinned & Essentials
-    .accesskey = P
-tab-context-zen-protect-pinned-essentials-unlocked =
-    .label = Protect Pinned & Essentials (currently unlocked)
-    .accesskey = P
+# One ordinary command whose label reflects the current lock state:
+# while Locked, the action unlocks; while Unlocked, it locks.
+tab-context-zen-protect-pinned-essentials-lock =
+    .label = Lock protected tabs
+    .accesskey = L
+tab-context-zen-protect-pinned-essentials-unlock =
+    .label = Unlock protected tabs
+    .accesskey = U
