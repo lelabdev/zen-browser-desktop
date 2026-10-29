@@ -396,6 +396,30 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     return this._protectionTabs(items).some(tab => this.isProtectedTab(tab));
   }
 
+  /**
+   * Option A for issue zen#3: while protection is Locked, the whole drag
+   * gesture of any selection that includes a protected tab is canceled at
+   * dragstart, before any drag image, hidden Essential tab, or compact-mode
+   * flag is initialized. To reorder protected tabs, the user Unlock globally
+   * first. The drop-time guards stay in place as defense in depth.
+   */
+  shouldBlockProtectedDragStart(source) {
+    if (!this.tabProtectionLocked || !source) {
+      return false;
+    }
+    let sources;
+    if (gBrowser.isTabGroupLabel(source)) {
+      sources = [source];
+    } else if (source.multiselected) {
+      sources = [...(gBrowser.selectedElements ?? gBrowser.selectedTabs ?? [])];
+    } else {
+      sources = [source];
+    }
+    return this._protectionTabs(
+      sources.map(item => (gBrowser.isTabGroupLabel(item) ? item.group : item))
+    ).some(tab => this.isProtectedTab(tab));
+  }
+
   shouldBlockProtectedDetach(contextTab, movingTabs = []) {
     if (!this.tabProtectionLocked) {
       return false;

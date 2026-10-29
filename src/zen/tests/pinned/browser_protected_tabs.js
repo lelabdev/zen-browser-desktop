@@ -614,6 +614,88 @@ add_task(async function test_classifier_and_first_closing_group_member() {
   }
 });
 
+add_task(async function test_locked_drag_starts_are_canceled() {
+  Services.prefs.setBoolPref(PROTECTION_ENABLED, true);
+  Services.prefs.setBoolPref(PROTECTION_LOCKED, true);
+  const pinned = await makePinnedTab();
+  const essential = await makeEssentialTab();
+  const normal = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "about:blank"
+  );
+  const tabs = document.getElementById("tabbrowser-tabs");
+  // This is a programmatically constructed (untrusted) event. It exercises
+  // the real DOM listener chain (tab element handler, tab strip handler, the
+  // manager guard and the early startingTabDrag return) and its
+  // defaultPrevented result, but it cannot prove that a real OS drag session
+  // stays absent; a manual drag gesture check covers that separately.
+  const startDrag = tab => {
+    const event = new DragEvent("dragstart", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: new DataTransfer(),
+    });
+    tab.dispatchEvent(event);
+    return event;
+  };
+  try {
+    ok(gZenPinnedTabManager.tabProtectionLocked, "Setup is Locked");
+    ok(
+      !gZenPinnedTabManager.shouldBlockProtectedDragStart(normal),
+      "Normal tabs are never rejected at drag start"
+    );
+    for (const protectedTab of [pinned, essential]) {
+      const event = startDrag(protectedTab);
+      ok(
+        event.defaultPrevented,
+        "The dragstart of a locked protected tab is canceled"
+      );
+      ok(
+        !tabs.hasAttribute("movingtab"),
+        "Locked protected tabs never enter the native moving mode"
+      );
+      ok(
+        !protectedTab.style.visibility,
+        "No Essential drag-image hiding left behind"
+      );
+      ok(
+        !gZenCompactModeManager._isTabBeingDragged,
+        "No compact-mode flag was set by a canceled protected drag"
+      );
+    }
+
+    gBrowser.selectedTab = normal;
+    gBrowser.addToMultiSelectedTabs(pinned);
+    ok(
+      gZenPinnedTabManager.shouldBlockProtectedDragStart(normal),
+      "A mixed multiselection is canceled as a whole while Locked"
+    );
+    gBrowser.clearMultiSelectedTabs();
+
+    Services.prefs.setBoolPref(PROTECTION_LOCKED, false);
+    ok(
+      !gZenPinnedTabManager.shouldBlockProtectedDragStart(essential),
+      "Unlocked protected tabs keep native drag behavior"
+    );
+    ok(
+      !gZenPinnedTabManager.shouldBlockProtectedDragStart(pinned),
+      "Unlocked pinned tabs keep native drag behavior"
+    );
+    ok(
+      !gZenPinnedTabManager.shouldBlockProtectedDragStart(normal),
+      "Unlocked normal tabs keep native drag behavior"
+    );
+  } finally {
+    gBrowser.clearMultiSelectedTabs();
+    Services.prefs.setBoolPref(PROTECTION_LOCKED, false);
+    for (const tab of [pinned, essential, normal]) {
+      if (tab.isConnected) {
+        await BrowserTestUtils.removeTab(tab);
+      }
+    }
+  }
+});
+
 add_task(async function test_split_composition_protected_policy() {
   Services.prefs.setBoolPref(PROTECTION_ENABLED, true);
   Services.prefs.setBoolPref(PROTECTION_LOCKED, true);

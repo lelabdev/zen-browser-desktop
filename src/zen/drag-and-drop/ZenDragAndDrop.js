@@ -143,6 +143,15 @@
     }
 
     startTabDrag(event, tab, ...args) {
+      if (gZenPinnedTabManager.shouldBlockProtectedDragStart(tab)) {
+        // Canceled before the drag session exists: no OS drag, no drag image,
+        // no hidden Essential tab, no compact-mode flag, and no data was set
+        // on the event. The tab never moves visually, and the next drag
+        // starts from a clean state.
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const options = args[0] ?? {};
       this.ZenDragAndDropService.onDragStart(1);
       this.#isOutOfWindow = false;
