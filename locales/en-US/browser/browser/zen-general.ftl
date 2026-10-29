@@ -167,3 +167,13 @@ zen-window-sync-migration-dialog-accept = Got It
 zen-appmenu-new-blank-window =
     .label = New Blank Window
 
+
+# Native, opt-in global protection for Pinned and Essential tabs.
+# One ordinary command whose label reflects the current lock state:
+# while Locked, the action unlocks; while Unlocked, it locks.
+tab-context-zen-protect-pinned-essentials-lock =
+    .label = Lock protected tabs
+    .accesskey = L
+tab-context-zen-protect-pinned-essentials-unlock =
+    .label = Unlock protected tabs
+    .accesskey = U
