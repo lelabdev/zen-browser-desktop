@@ -216,24 +216,20 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
           this.tabProtectionLocked ? "locked" : "unlocked"
         );
       }
-      const checkbox = document.getElementById(
+      const actionItem = document.getElementById(
         "context_zen-protect-pinned-essentials"
       );
-      if (checkbox) {
+      if (actionItem) {
         const locked = this.tabProtectionLocked;
-        checkbox.checked = locked;
-        checkbox.setAttribute("checked", String(locked));
         const l10nId = locked
-          ? "tab-context-zen-protect-pinned-essentials"
-          : "tab-context-zen-protect-pinned-essentials-unlocked";
+          ? "tab-context-zen-protect-pinned-essentials-unlock"
+          : "tab-context-zen-protect-pinned-essentials-lock";
         if (typeof document.l10n?.setAttributes === "function") {
-          document.l10n.setAttributes(checkbox, l10nId);
+          document.l10n.setAttributes(actionItem, l10nId);
         } else {
-          checkbox.setAttribute("data-l10n-id", l10nId);
+          actionItem.setAttribute("data-l10n-id", l10nId);
         }
-        if (!this.tabProtectionEnabled) {
-          checkbox.hidden = true;
-        }
+        actionItem.hidden = !this.tabProtectionEnabled;
       }
       if (window.TabContextMenu?.contextTab) {
         this.updatePinnedTabContextMenu(window.TabContextMenu.contextTab);
@@ -313,8 +309,8 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     const item = document.getElementById(
       "context_zen-protect-pinned-essentials"
     );
-    const onCommand = event => {
-      this.setTabProtectionLocked(Boolean(event.currentTarget.checked));
+    const onCommand = () => {
+      this.setTabProtectionLocked(!this.tabProtectionLocked);
     };
     item?.addEventListener("command", onCommand);
     window.addEventListener(
@@ -984,15 +980,15 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
                       hidden="true"
                       disabled="true"
                       command="cmd_contextZenAddToEssentials"/>
+            <!-- Single global Lock/Unlock command; the localized label is
+                 chosen from the current pref, never from a checkbox state. -->
+            <menuitem id="context_zen-protect-pinned-essentials"
+                      data-l10n-id="tab-context-zen-protect-pinned-essentials-lock"
+                      hidden="true"/>
             <menuitem id="context_zen-remove-essential"
                       data-lazy-l10n-id="tab-context-zen-remove-essential"
                       hidden="true"
                       command="cmd_contextZenRemoveFromEssentials"/>
-            <menuseparator id="context_zen-protection-separator" hidden="true"/>
-            <menuitem id="context_zen-protect-pinned-essentials"
-                      type="checkbox"
-                      data-l10n-id="tab-context-zen-protect-pinned-essentials"
-                      hidden="true"/>
             <menuseparator/>
             <menuitem id="context_zen-edit-tab-title"
                       data-lazy-l10n-id="tab-context-zen-edit-title"
@@ -1046,18 +1042,14 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
       "context_zen-protect-pinned-essentials"
     );
     protectionItem.hidden = !showProtection;
-    protectionItem.checked = this.tabProtectionLocked;
-    protectionItem.setAttribute("checked", String(this.tabProtectionLocked));
     const protectionL10nId = this.tabProtectionLocked
-      ? "tab-context-zen-protect-pinned-essentials"
-      : "tab-context-zen-protect-pinned-essentials-unlocked";
+      ? "tab-context-zen-protect-pinned-essentials-unlock"
+      : "tab-context-zen-protect-pinned-essentials-lock";
     if (typeof document.l10n?.setAttributes === "function") {
       document.l10n.setAttributes(protectionItem, protectionL10nId);
     } else {
       protectionItem.setAttribute("data-l10n-id", protectionL10nId);
     }
-    document.getElementById("context_zen-protection-separator").hidden =
-      !showProtection;
     const isEssential = contextTab.getAttribute("zen-essential");
     const zenAddEssential = document.getElementById(
       "context_zen-add-essential"
@@ -1100,8 +1092,10 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     // hidden states.
     document.getElementById("context_closeTab").hidden =
       contextTab.hasAttribute("zen-essential");
+    // While Locked, hide "Remove from Essentials" from the menu; the removal
+    // guards (canPerformProtectedAction) stay in force for all entry points.
     document.getElementById("context_zen-remove-essential").hidden =
-      !isEssential;
+      !isEssential || isLocked;
     document.getElementById("context_unpinTab").hidden =
       document.getElementById("context_unpinTab").hidden || isEssential;
     document.getElementById("context_unpinSelectedTabs").hidden =
@@ -1111,7 +1105,6 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
       "context_closeTab",
       "context_unpinTab",
       "context_unpinSelectedTabs",
-      "context_zen-remove-essential",
     ]) {
       document
         .getElementById(id)
@@ -1122,7 +1115,6 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
         "context_closeTab",
         "context_unpinTab",
         "context_unpinSelectedTabs",
-        "context_zen-remove-essential",
       ]) {
         document
           .getElementById(id)

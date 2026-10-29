@@ -12,6 +12,16 @@ const lockItem = () =>
 const isBlocked = id =>
   document.getElementById(id)?.getAttribute("zen-protected-blocked") === "true";
 const isHidden = id => document.getElementById(id)?.hidden === true;
+const muteTabPrecedesProtection = protectionAction => {
+  const muteItem = document.getElementById("context_toggleMuteTab");
+  if (!muteItem || !protectionAction) {
+    return false;
+  }
+  return Boolean(
+    muteItem.compareDocumentPosition(protectionAction) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  );
+};
 
 async function makePinnedTab(url = "about:blank") {
   const tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
@@ -50,16 +60,17 @@ async function closeTabMenu(menu) {
   }
 }
 
-async function clickProtectionItem() {
+async function clickProtectionAction() {
   const item = lockItem();
-  ok(!item.hidden, "The global protection checkbox is visible");
+  ok(!item.hidden, "The global protection action is visible");
+  const lockStateBefore = Services.prefs.getBoolPref(PROTECTION_LOCKED, true);
   EventUtils.synthesizeMouseAtCenter(item, {});
   await TestUtils.waitForCondition(
     () =>
-      Services.prefs.getBoolPref(PROTECTION_LOCKED, true) ===
-      Boolean(item.checked),
-    "The click updates the persisted protection state"
+      Services.prefs.getBoolPref(PROTECTION_LOCKED, true) !== lockStateBefore,
+    "The click flips the persisted protection state"
   );
+  return !lockStateBefore;
 }
 
 async function waitForRemoved(tab) {
@@ -98,7 +109,7 @@ add_task(async function test_feature_disabled_preserves_native_behavior() {
       "Disabled feature does not add a root marker"
     );
     gZenPinnedTabManager.updatePinnedTabContextMenu(pinned);
-    ok(lockItem().hidden, "Disabled feature keeps the checkbox hidden");
+    ok(lockItem().hidden, "Disabled feature keeps the lock action hidden");
 
     gBrowser.selectedTab = pinned;
     document.getElementById("cmd_close").doCommand();
@@ -187,9 +198,30 @@ add_task(async function test_locked_blocks_close_unpin_remove_and_detach() {
     }
 
     await openTabMenu(pinned);
-    is(lockItem().checked, true, "The checkbox reflects Locked");
-    ok(isBlocked("context_closeTab"), "Native close is hidden while Locked");
-    ok(isBlocked("context_unpinTab"), "Native unpin is hidden while Locked");
+    const protectionAction = lockItem();
+    ok(
+      muteTabPrecedesProtection(protectionAction),
+      "The global lock action comes after Mute Tab"
+    );
+    is(
+      protectionAction.nextElementSibling?.id,
+      "context_zen-remove-essential",
+      "The global lock action sits directly before Remove from Essentials"
+    );
+    ok(
+      isHidden("context_zen-remove-essential"),
+      "Locked hides Remove from Essentials"
+    );
+    await document.l10n.translateFragment(
+      document.getElementById("tabContextMenu")
+    );
+    ok(
+      protectionAction.label.includes("Unlock"),
+      "Locked shows the Unlock protected tabs command"
+    );
+    ok(!protectionAction.hasAttribute("type"), "The lock action has no checkbox or icon type");
+    ok(isBlocked("context_closeTab"), "Native close is blocked while Locked");
+    ok(isBlocked("context_unpinTab"), "Native unpin is blocked while Locked");
     await closeTabMenu(document.getElementById("tabContextMenu"));
 
     const group = gBrowser.addTabGroup([pinned], { insertBefore: pinned });
@@ -215,28 +247,33 @@ add_task(async function test_locked_blocks_close_unpin_remove_and_detach() {
   }
 });
 
-add_task(async function test_real_checkbox_unlocks_and_relocks() {
+add_task(async function test_real_action_unlocks_and_relocks() {
   Services.prefs.setBoolPref(PROTECTION_ENABLED, true);
   Services.prefs.setBoolPref(PROTECTION_LOCKED, true);
   const pinned = await makePinnedTab();
   const menu = document.getElementById("tabContextMenu");
   try {
     await openTabMenu(pinned);
-    await clickProtectionItem();
+    await clickProtectionAction();
     ok(
       !gZenPinnedTabManager.tabProtectionLocked,
-      "Unchecking unlocks globally"
+      "The action unlocks globally"
     );
     is(
       document.documentElement.getAttribute("zen-protected-tabs"),
       "unlocked",
       "The window exposes the unlocked state"
     );
-    is(lockItem().checked, false, "Checkbox is unchecked while Unlocked");
+    await TestUtils.waitForCondition(
+      () =>
+        (document.l10n.getAttributes(lockItem()).id || "") ===
+        "tab-context-zen-protect-pinned-essentials-lock",
+      "The menu label follows the pref without reopening the menu"
+    );
     await document.l10n.translateFragment(lockItem());
     ok(
-      lockItem().label.includes("unlocked"),
-      "The menu label makes the unlocked state explicit"
+      lockItem().label.includes("Lock") && !lockItem().label.includes("Unlock"),
+      "The unlocked state shows the Lock protected tabs command"
     );
     ok(
       !isBlocked("context_closeTab"),
@@ -260,8 +297,8 @@ add_task(async function test_real_checkbox_unlocks_and_relocks() {
 
     const next = await makePinnedTab();
     await openTabMenu(next);
-    await clickProtectionItem();
-    ok(gZenPinnedTabManager.tabProtectionLocked, "Checking relocks globally");
+    await clickProtectionAction();
+    ok(gZenPinnedTabManager.tabProtectionLocked, "The action relocks globally");
     is(
       document.documentElement.getAttribute("zen-protected-tabs"),
       "locked",
@@ -476,12 +513,12 @@ add_task(async function test_essential_menu_baseline_visibility() {
       "Locked: Essential unpin baseline remains hidden"
     );
     ok(
-      !isHidden("context_zen-remove-essential"),
-      "Locked: Essential Remove baseline remains visible"
+      isHidden("context_zen-remove-essential"),
+      "Locked: Essential Remove is hidden while the unlock command stays visible"
     );
     ok(
-      isBlocked("context_zen-remove-essential"),
-      "Locked: Remove is protection-blocked"
+      !isHidden("context_zen-protect-pinned-essentials"),
+      "Locked: The unlock command stays visible"
     );
     await closeTabMenu(menu);
 
@@ -494,8 +531,8 @@ add_task(async function test_essential_menu_baseline_visibility() {
       "Unlocked: Remove from Essentials is visible"
     );
     ok(
-      !isBlocked("context_zen-remove-essential"),
-      "Unlocked: Remove is not blocked"
+      !isHidden("context_zen-protect-pinned-essentials"),
+      "Unlocked: The lock action stays visible"
     );
     await closeTabMenu(menu);
 
