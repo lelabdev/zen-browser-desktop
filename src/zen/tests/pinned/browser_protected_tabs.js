@@ -12,6 +12,14 @@ const lockItem = () =>
 const isBlocked = id =>
   document.getElementById(id)?.getAttribute("zen-protected-blocked") === "true";
 const isHidden = id => document.getElementById(id)?.hidden === true;
+const protectionL10nId = () => document.l10n.getAttributes(lockItem()).id;
+const resolveProtectionLabel = async id => {
+  const [message] = await document.l10n.formatMessages([{ id }]);
+  return (
+    message?.attributes?.find(attribute => attribute.name === "label")?.value ??
+    null
+  );
+};
 const muteTabPrecedesProtection = protectionAction => {
   const muteItem = document.getElementById("context_toggleMuteTab");
   if (!muteItem || !protectionAction) {
@@ -312,6 +320,74 @@ add_task(async function test_real_action_unlocks_and_relocks() {
   } finally {
     Services.prefs.setBoolPref(PROTECTION_LOCKED, false);
     await closeTabMenu(menu);
+    if (pinned.isConnected) {
+      await BrowserTestUtils.removeTab(pinned);
+    }
+  }
+});
+
+add_task(async function test_protection_action_label_is_never_empty() {
+  Services.prefs.setBoolPref(PROTECTION_ENABLED, true);
+  Services.prefs.setBoolPref(PROTECTION_LOCKED, true);
+  const pinned = await makePinnedTab();
+  const menu = document.getElementById("tabContextMenu");
+  try {
+    for (const [locked, expectedId] of [
+      [true, "tab-context-zen-protect-pinned-essentials-unlock"],
+      [false, "tab-context-zen-protect-pinned-essentials-lock"],
+    ]) {
+      Services.prefs.setBoolPref(PROTECTION_LOCKED, locked);
+      await openTabMenu(pinned);
+      const id = protectionL10nId();
+      is(id, expectedId, "The command uses the state-specific Fluent id");
+      // Run the same translation the command performs so an unresolved
+      // message fails here instead of only checking that a source key exists.
+      await document.l10n.translateElements([lockItem()]).catch(() => {});
+      const resolvedLabel = await resolveProtectionLabel(id);
+      ok(resolvedLabel, `${id} resolves in the shipped localization bundle`);
+      ok(lockItem().label.trim(), "The displayed label is never empty");
+      is(
+        lockItem().label,
+        resolvedLabel,
+        "The displayed label is the resolved translation"
+      );
+      await closeTabMenu(menu);
+    }
+  } finally {
+    await closeTabMenu(menu);
+    Services.prefs.setBoolPref(PROTECTION_LOCKED, false);
+    if (pinned.isConnected) {
+      await BrowserTestUtils.removeTab(pinned);
+    }
+  }
+});
+
+add_task(async function test_unresolved_protection_label_uses_fallback() {
+  Services.prefs.setBoolPref(PROTECTION_ENABLED, true);
+  Services.prefs.setBoolPref(PROTECTION_LOCKED, true);
+  const pinned = await makePinnedTab();
+  const menu = document.getElementById("tabContextMenu");
+  try {
+    await openTabMenu(pinned);
+    const item = lockItem();
+    await gZenPinnedTabManager._localizeProtectionAction(
+      item,
+      true,
+      "zen-test-missing-protection-label"
+    );
+    ok(
+      item.label.trim(),
+      "An unresolved Fluent message never leaves an empty menu label"
+    );
+    is(
+      item.label,
+      "Unlock protected tabs",
+      "The command falls back to the readable Locked label"
+    );
+  } finally {
+    gZenPinnedTabManager._syncTabProtectionUI();
+    await closeTabMenu(menu);
+    Services.prefs.setBoolPref(PROTECTION_LOCKED, false);
     if (pinned.isConnected) {
       await BrowserTestUtils.removeTab(pinned);
     }
