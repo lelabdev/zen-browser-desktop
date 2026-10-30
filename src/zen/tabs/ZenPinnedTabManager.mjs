@@ -6,6 +6,20 @@ import { nsZenDOMOperatedFeature } from "chrome://browser/content/zen-components
 
 const lazy = {};
 
+// The two states of the single global Lock/Unlock command. The fallback labels
+// keep the command readable when the Fluent message cannot be resolved, for
+// example when a native build ships a stale localization bundle (#7).
+const PROTECTION_ACTION_MESSAGES = {
+  locked: {
+    l10nId: "tab-context-zen-protect-pinned-essentials-unlock",
+    fallbackLabel: "Unlock protected tabs",
+  },
+  unlocked: {
+    l10nId: "tab-context-zen-protect-pinned-essentials-lock",
+    fallbackLabel: "Lock protected tabs",
+  },
+};
+
 class ZenPinnedTabsObserver {
   static ALL_EVENTS = ["TabPinned", "TabUnpinned"];
 
@@ -203,6 +217,72 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
     }
   }
 
+  /**
+   * Applies the state-specific Fluent message to the global Lock/Unlock
+   * command and guarantees a readable label.
+   *
+   * `document.l10n.translateElements` rejects when the message cannot be
+   * resolved (for example when a native build ships a stale localization
+   * bundle). Translating without a fallback would leave the menu item with an
+   * empty label, i.e. an effectively invisible command. The fallback is seeded
+   * synchronously and restored if translation fails or yields nothing.
+   *
+   * @param {Element} item - The Lock/Unlock menuitem.
+   * @param {boolean} locked - The current global protection state.
+   * @param {string} [l10nId] - Test hook to exercise an unresolved message.
+   * @returns {Promise<void>} Resolves once the translation attempt settled.
+   */
+  _localizeProtectionAction(item, locked, l10nId = null) {
+    const message = locked
+      ? PROTECTION_ACTION_MESSAGES.locked
+      : PROTECTION_ACTION_MESSAGES.unlocked;
+    const id = l10nId ?? message.l10nId;
+    if (typeof document.l10n?.setAttributes === "function") {
+      document.l10n.setAttributes(item, id);
+    } else {
+      item.setAttribute("data-l10n-id", id);
+    }
+    // Seed the fallback immediately so the command is never blank while the
+    // asynchronous translation is pending or if it cannot be applied.
+    item.setAttribute("label", message.fallbackLabel);
+    if (typeof document.l10n?.translateElements !== "function") {
+      return Promise.resolve();
+    }
+    const settleFallback = translationFailed => {
+      let dropL10nId = translationFailed;
+      const currentId =
+        typeof document.l10n.getAttributes === "function"
+          ? document.l10n.getAttributes(item).id
+          : item.getAttribute("data-l10n-id");
+      // A newer state may have been applied while this translation was
+      // pending; never overwrite the newer label with an older fallback.
+      if (currentId !== id) {
+        return;
+      }
+      if (!item.label?.trim()) {
+        item.setAttribute("label", message.fallbackLabel);
+        dropL10nId = true;
+      }
+      if (dropL10nId) {
+        // Drop the unresolvable id so later fragment translations are not
+        // rejected because of this single stale message. The next menu open
+        // re-applies the id and retries the translation.
+        item.removeAttribute("data-l10n-id");
+        item.removeAttribute("data-l10n-args");
+      }
+    };
+    return document.l10n.translateElements([item]).then(
+      () => settleFallback(false),
+      error => {
+        console.error(
+          `Failed to localize ${id}; keeping a fallback label`,
+          error
+        );
+        settleFallback(true);
+      }
+    );
+  }
+
   _syncTabProtectionUI() {
     if (window.closed) {
       return true;
@@ -220,15 +300,7 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
         "context_zen-protect-pinned-essentials"
       );
       if (actionItem) {
-        const locked = this.tabProtectionLocked;
-        const l10nId = locked
-          ? "tab-context-zen-protect-pinned-essentials-unlock"
-          : "tab-context-zen-protect-pinned-essentials-lock";
-        if (typeof document.l10n?.setAttributes === "function") {
-          document.l10n.setAttributes(actionItem, l10nId);
-        } else {
-          actionItem.setAttribute("data-l10n-id", l10nId);
-        }
+        this._localizeProtectionAction(actionItem, this.tabProtectionLocked);
         actionItem.hidden = !this.tabProtectionEnabled;
       }
       if (window.TabContextMenu?.contextTab) {
@@ -1066,14 +1138,7 @@ class nsZenPinnedTabManager extends nsZenDOMOperatedFeature {
       "context_zen-protect-pinned-essentials"
     );
     protectionItem.hidden = !showProtection;
-    const protectionL10nId = this.tabProtectionLocked
-      ? "tab-context-zen-protect-pinned-essentials-unlock"
-      : "tab-context-zen-protect-pinned-essentials-lock";
-    if (typeof document.l10n?.setAttributes === "function") {
-      document.l10n.setAttributes(protectionItem, protectionL10nId);
-    } else {
-      protectionItem.setAttribute("data-l10n-id", protectionL10nId);
-    }
+    this._localizeProtectionAction(protectionItem, this.tabProtectionLocked);
     const isEssential = contextTab.getAttribute("zen-essential");
     const zenAddEssential = document.getElementById(
       "context_zen-add-essential"
